@@ -395,13 +395,11 @@ def auth_google():
     google_provider_cfg = get_google_provider_cfg()
     authorization_endpoint = google_provider_cfg["authorization_endpoint"]
 
-    # Use dynamic redirect URI based on the request host, forcing localhost for local dev to avoid Vite 127.0.0.1 proxy mismatches
+    # Force localhost for local dev, but use the frontend Vercel origin for production to keep cookies on the frontend domain
     if "localhost" in request.host or "127.0.0.1" in request.host:
         redirect_uri = "http://localhost:5000/api/auth/google/callback"
     else:
-        redirect_uri = request.base_url + "/callback"
-        if "onrender.com" in redirect_uri and redirect_uri.startswith("http://"):
-            redirect_uri = redirect_uri.replace("http://", "https://")
+        redirect_uri = frontend_origin + "/api/auth/google/callback"
 
     request_uri = client.prepare_request_uri(
         authorization_endpoint,
@@ -416,13 +414,12 @@ def auth_google_callback():
     google_provider_cfg = get_google_provider_cfg()
     token_endpoint = google_provider_cfg["token_endpoint"]
     
-    # Use dynamic redirect URI based on the request host to match redirect_uri sent in auth_google
+    # Use dynamic redirect URI matching the one sent in auth_google
     if "localhost" in request.host or "127.0.0.1" in request.host:
         redirect_uri = "http://localhost:5000/api/auth/google/callback"
     else:
-        redirect_uri = request.base_url
-        if "onrender.com" in redirect_uri and redirect_uri.startswith("http://"):
-            redirect_uri = redirect_uri.replace("http://", "https://")
+        frontend_origin = session.get("oauth_frontend_origin", "https://market-master-ai-rust.vercel.app")
+        redirect_uri = frontend_origin + "/api/auth/google/callback"
 
     # Use the same redirect_uri that was sent in the initial request
     token_url, headers, body = client.prepare_token_request(
