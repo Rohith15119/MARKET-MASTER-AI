@@ -31,7 +31,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "https://market-master-ai.onrender.com",
+        target: "http://localhost:5000",
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: "localhost",
@@ -42,7 +42,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "https://market-master-ai.onrender.com",
+        target: "http://localhost:5000",
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: "localhost",

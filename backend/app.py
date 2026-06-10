@@ -382,15 +382,23 @@ def auth_logout():
 
 @app.route("/api/auth/google")
 def auth_google():
+    referrer = request.headers.get("Referer") or request.referrer or "https://market-master-ai-rust.vercel.app"
+    frontend_origin = referrer.split("/login")[0].rstrip("/")
+    if not frontend_origin.startswith("http"):
+        frontend_origin = "https://market-master-ai-rust.vercel.app"
+        
+    session["oauth_frontend_origin"] = frontend_origin
+
     if not client:
-        return redirect("http://localhost:5173/login?error=Google%20OAuth%20not%20configured%20on%20backend")
+        return redirect(f"{frontend_origin}/login?error=Google%20OAuth%20not%20configured%20on%20backend")
 
     google_provider_cfg = get_google_provider_cfg()
     authorization_endpoint = google_provider_cfg["authorization_endpoint"]
 
-    # Use a consistent redirect_uri regardless of how the proxy forwarded the request
-    # Often Vite forwards as 127.0.0.1 but the browser is on localhost, causing a mismatch.
-    redirect_uri = "http://localhost:5000/api/auth/google/callback"
+    # Use dynamic redirect URI based on the request host
+    redirect_uri = request.base_url + "/callback"
+    if "onrender.com" in redirect_uri and redirect_uri.startswith("http://"):
+        redirect_uri = redirect_uri.replace("http://", "https://")
 
     request_uri = client.prepare_request_uri(
         authorization_endpoint,
@@ -404,7 +412,11 @@ def auth_google_callback():
     code = request.args.get("code")
     google_provider_cfg = get_google_provider_cfg()
     token_endpoint = google_provider_cfg["token_endpoint"]
-    redirect_uri = "http://localhost:5000/api/auth/google/callback" | "https://market-master-ai-rust.vercel.app/api/auth/google/callback"
+    
+    # Use dynamic redirect URI based on the request host to match redirect_uri sent in auth_google
+    redirect_uri = request.base_url
+    if "onrender.com" in redirect_uri and redirect_uri.startswith("http://"):
+        redirect_uri = redirect_uri.replace("http://", "https://")
 
     # Use the same redirect_uri that was sent in the initial request
     token_url, headers, body = client.prepare_token_request(
@@ -449,7 +461,8 @@ def auth_google_callback():
 
     session["user_email"] = users_email
     
-    return redirect("https://market-master-ai-rust.vercel.app/login?google_login=success")
+    frontend_origin = session.get("oauth_frontend_origin", "https://market-master-ai-rust.vercel.app")
+    return redirect(f"{frontend_origin}/login?google_login=success")
 
 
 # ── AI Generation endpoints ──────────────────────────────────────────────────
