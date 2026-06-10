@@ -1,0 +1,6 @@
+Starting test_campaign_pdf...
+Checking history/analysis_reports tables...
+Found row with columns: ['id', 'user_email', 'module', 'title', 'input_data', 'result_json', 'confidence_score', 'created_at', 'is_public', 'share_token']
+Loaded campaign data from DB successfully!
+Running generate_pdf with data keys: ['campaign_name', 'executive_campaign_overview', 'strategic_goals', 'persona_profile', 'funnel', 'budget_allocation', 'kpis', 'content_ideas', 'ad_copies', 'social_media_posts', 'calendar', 'objectives', 'estimated_reach', 'estimated_ctr', 'estimated_cvr', 'timeline_weeks', 'persona']
+Success! Generated 8260 bytes of PDF.
