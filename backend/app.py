@@ -149,9 +149,30 @@ else:
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "marketmind-dev-secret-key-change-in-production")
-CORS(app, supports_credentials=True, origins=["http://localhost:5173", "http://127.0.0.1:5173","https://market-master-ai-rust.vercel.app/"])
+# Note: no trailing slash on the Vercel origin
+CORS(app, supports_credentials=True, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://market-master-ai-rust.vercel.app"])
 
 import secrets
+import time
+import hmac
+import hashlib
+
+# Short-lived token store for Google OAuth token exchange (email -> token)
+_oauth_tokens = {}  # { token: (email, expire_timestamp) }
+
+def _generate_oauth_token(email):
+    token = secrets.token_urlsafe(32)
+    _oauth_tokens[token] = (email, time.time() + 120)  # valid 2 minutes
+    return token
+
+def _consume_oauth_token(token):
+    entry = _oauth_tokens.pop(token, None)
+    if not entry:
+        return None
+    email, expires = entry
+    if time.time() > expires:
+        return None
+    return email
 
 @app.before_request
 def handle_csrf():
@@ -171,7 +192,15 @@ def handle_csrf():
 def set_csrf_cookie(response):
     if "csrf_token" not in session:
         session["csrf_token"] = secrets.token_hex(32)
-    response.set_cookie("csrf_token", session["csrf_token"], samesite="Lax", secure=False)
+    # Use SameSite=None + Secure for cross-domain (Render backend + Vercel frontend)
+    is_prod = not ("localhost" in request.host or "127.0.0.1" in request.host)
+    response.set_cookie(
+        "csrf_token",
+        session["csrf_token"],
+        samesite="None" if is_prod else "Lax",
+        secure=is_prod,
+        httponly=False
+    )
     return response
 
 # Initialize database schema
@@ -386,7 +415,7 @@ def auth_google():
     frontend_origin = referrer.split("/login")[0].rstrip("/")
     if not frontend_origin.startswith("http"):
         frontend_origin = "https://market-master-ai-rust.vercel.app"
-        
+
     session["oauth_frontend_origin"] = frontend_origin
 
     if not client:
@@ -395,11 +424,11 @@ def auth_google():
     google_provider_cfg = get_google_provider_cfg()
     authorization_endpoint = google_provider_cfg["authorization_endpoint"]
 
-    # Force localhost for local dev, but use the frontend Vercel origin for production to keep cookies on the frontend domain
+    # Always use the backend's own domain as redirect_uri — this must match Google Cloud Console exactly
     if "localhost" in request.host or "127.0.0.1" in request.host:
         redirect_uri = "http://localhost:5000/api/auth/google/callback"
     else:
-        redirect_uri = frontend_origin + "/api/auth/google/callback"
+        redirect_uri = "https://market-master-ai.onrender.com/api/auth/google/callback"
 
     request_uri = client.prepare_request_uri(
         authorization_endpoint,
@@ -413,15 +442,13 @@ def auth_google_callback():
     code = request.args.get("code")
     google_provider_cfg = get_google_provider_cfg()
     token_endpoint = google_provider_cfg["token_endpoint"]
-    
-    # Use dynamic redirect URI matching the one sent in auth_google
+
+    # Must exactly match what was sent in auth_google
     if "localhost" in request.host or "127.0.0.1" in request.host:
         redirect_uri = "http://localhost:5000/api/auth/google/callback"
     else:
-        frontend_origin = session.get("oauth_frontend_origin", "https://market-master-ai-rust.vercel.app")
-        redirect_uri = frontend_origin + "/api/auth/google/callback"
+        redirect_uri = "https://market-master-ai.onrender.com/api/auth/google/callback"
 
-    # Use the same redirect_uri that was sent in the initial request
     token_url, headers, body = client.prepare_token_request(
         token_endpoint,
         authorization_response=request.url,
@@ -430,7 +457,7 @@ def auth_google_callback():
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET
     )
-    
+
     token_response = requests.post(
         token_url,
         headers=headers,
@@ -449,7 +476,6 @@ def auth_google_callback():
     userinfo_response = requests.get(uri, headers=headers)
 
     if userinfo_response.json().get("email_verified"):
-        unique_id = userinfo_response.json()["sub"]
         users_email = userinfo_response.json()["email"]
         picture = userinfo_response.json()["picture"]
         users_name = userinfo_response.json()["given_name"]
@@ -462,10 +488,34 @@ def auth_google_callback():
     if not user:
         database.create_user(users_email, "google-oauth", users_name, users_name, last_name, picture)
 
-    session["user_email"] = users_email
-    
     frontend_origin = session.get("oauth_frontend_origin", "https://market-master-ai-rust.vercel.app")
-    return redirect(f"{frontend_origin}/login?google_login=success")
+
+    if "localhost" in request.host or "127.0.0.1" in request.host:
+        # Local: set session cookie directly and redirect
+        session["user_email"] = users_email
+        return redirect(f"{frontend_origin}/login?google_login=success")
+    else:
+        # Production: cross-domain cookie won't work.
+        # Generate a short-lived one-time token and pass it in the redirect URL.
+        # The frontend will exchange it for a real session via /api/auth/google/token-exchange.
+        ott = _generate_oauth_token(users_email)
+        return redirect(f"{frontend_origin}/login?google_login=success&ott={ott}")
+
+
+@app.route("/api/auth/google/token-exchange", methods=["POST"])
+def google_token_exchange():
+    """Exchange a one-time token (generated after Google OAuth) for a real Flask session."""
+    data = request.get_json() or {}
+    ott = data.get("token", "")
+    email = _consume_oauth_token(ott)
+    if not email:
+        return jsonify({"error": "Invalid or expired token"}), 401
+    user = database.get_user(email)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    session["user_email"] = email
+    user_data = {k: v for k, v in user.items() if k != "password"}
+    return jsonify({"success": True, "user": {**user_data, "email": email}})
 
 
 # ── AI Generation endpoints ──────────────────────────────────────────────────
