@@ -149,7 +149,7 @@ else:
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "marketmind-dev-secret-key-change-in-production")
-CORS(app, supports_credentials=True, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+CORS(app, supports_credentials=True, origins=["http://localhost:5173", "http://127.0.0.1:5173","https://market-master-ai-rust.vercel.app/"])
 
 import secrets
 
@@ -204,9 +204,6 @@ def get_google_provider_cfg():
 
 
 def safe_llm_invoke(messages, temperature=0.7):
-    """
-    Invoke Groq LLM with fallback to llama-3.1-8b-instant if llama-3.3-70b-versatile fails (e.g. 429).
-    """
     primary_model = "llama-3.3-70b-versatile"
     fast_model = "llama-3.1-8b-instant"
     try:
@@ -234,12 +231,8 @@ def safe_llm_invoke(messages, temperature=0.7):
 
 
 def clean_markdown(text: str) -> str:
-    """Clean excessive markdown formatting for display."""
     return re.sub(r'\*{3,}', '', text)
 
-
-
-# ─── Flask Routes ────────────────────────────────────────────────────────────
 
 # In-memory user database (removed)
 USERS_DB = {}
@@ -411,7 +404,7 @@ def auth_google_callback():
     code = request.args.get("code")
     google_provider_cfg = get_google_provider_cfg()
     token_endpoint = google_provider_cfg["token_endpoint"]
-    redirect_uri = "http://localhost:5000/api/auth/google/callback"
+    redirect_uri = "http://localhost:5000/api/auth/google/callback" | "https://market-master-ai-rust.vercel.app/api/auth/google/callback"
 
     # Use the same redirect_uri that was sent in the initial request
     token_url, headers, body = client.prepare_token_request(
@@ -456,8 +449,7 @@ def auth_google_callback():
 
     session["user_email"] = users_email
     
-    # Redirect back to the frontend with success
-    return redirect("http://localhost:5173/login?google_login=success")
+    return redirect("https://market-master-ai-rust.vercel.app/login?google_login=success")
 
 
 # ── AI Generation endpoints ──────────────────────────────────────────────────
@@ -479,7 +471,6 @@ def health_check():
         }
     })
 
-# ─── History Endpoints ───────────────────────────────────────────────────────
 
 @app.route("/api/history", methods=["GET"])
 def get_history():
@@ -2926,9 +2917,6 @@ def delete_logo_history(record_id):
     return jsonify({"success": success})
 
 
-
-
-
 if __name__ == "__main__":
     if not GROQ_API_KEY:
         print("\n⚠️  WARNING: GROQ_API_KEY not found in environment variables!")
@@ -2939,5 +2927,5 @@ if __name__ == "__main__":
         print("   ⛓️  LangChain + LangGraph workflows compiled\n")
 
     print("🚀 MarketMind AI is starting...")
-    print("   Open http://localhost:5000 in your browser\n")
+    print("Open https://market-master-ai-rust.vercel.app in your browser\n")
     app.run(debug=True, port=5000, use_reloader=False)
